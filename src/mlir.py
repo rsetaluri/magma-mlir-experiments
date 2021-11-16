@@ -1,9 +1,9 @@
 import abc
 import contextlib
 import dataclasses
-from typing import List, Optional, Tuple
+from typing import List, Mapping, Optional, Tuple
 
-from common import Stack, WithId, default_list_field
+from common import Stack, WithId, default_field
 from printer_base import PrinterBase
 
 
@@ -32,8 +32,8 @@ class MlirValue:
 
 @dataclasses.dataclass
 class MlirBlock(WithId):
-    operations: List['MlirOp'] = default_list_field(init=False)
-    arguments: List[MlirValue] = default_list_field(init=False)
+    operations: List['MlirOp'] = default_field(list, init=False)
+    arguments: List[MlirValue] = default_field(list, init=False)
 
     def print(self, printer: PrinterBase):
         for operation in self.operations:
@@ -62,7 +62,7 @@ def push_block(block):
 
 @dataclasses.dataclass
 class MlirRegion(WithId):
-    blocks: List[MlirBlock] = default_list_field(init=False)
+    blocks: List[MlirBlock] = default_field(list, init=False)
 
     def print(self, printer: PrinterBase):
         for block in self.blocks:
@@ -92,9 +92,10 @@ class MlirOpMeta(abc.ABCMeta):
 
 @dataclasses.dataclass
 class MlirOp(WithId, metaclass=MlirOpMeta):
-    regions: List[MlirRegion] = default_list_field(init=False)
-    operands: List[MlirValue] = default_list_field(init=False)
-    results: List[MlirValue] = default_list_field(init=False)
+    regions: List[MlirRegion] = default_field(list, init=False)
+    operands: List[MlirValue] = default_field(list, init=False)
+    results: List[MlirValue] = default_field(list, init=False)
+    attr_dict: Mapping = default_field(dict, init=False)
 
     def print(self, printer: PrinterBase):
         self.print_op(printer)

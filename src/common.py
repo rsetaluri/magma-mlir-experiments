@@ -33,8 +33,8 @@ def make_unique_name() -> str:
     return name
 
 
-def default_list_field(**kwargs):
-    return dataclasses.field(default_factory=list, **kwargs)
+def default_field(cons, **kwargs):
+    return dataclasses.field(default_factory=cons, **kwargs)
 
 
 @dataclasses.dataclass

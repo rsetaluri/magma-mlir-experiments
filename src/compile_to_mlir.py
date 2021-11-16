@@ -555,6 +555,38 @@ def treat_as_definition(defn_or_decl: m.circuit.CircuitKind) -> bool:
     return True
 
 
+class BindProcessor:
+    def __init__(self, ctx: ModuleContext, defn: m.circuit.CircuitKind):
+        self._ctx = ctx
+        self._defn = defn
+
+    def preprocess(self):
+        for bind_module in self._defn.bind_modules:
+            lower_magma_defn_or_decl_to_hw(bind_module)
+
+    def process(self):
+        self._syms = []
+        for bind_module, (_, _) in self._defn.bind_modules.items():
+            operands = [
+                self._ctx.get_mapped_value(p)
+                for p in self._defn.interface.ports.values()
+            ]
+            inst_name = f"{bind_module.name}_inst"
+            sym = f"@{self._defn.name}.{inst_name}"
+            inst = hw.InstanceOp(
+                name=inst_name,
+                module=bind_module.name,
+                operands=operands,
+                results=[],
+                sym=sym)
+            inst.attr_dict["doNotPrint"] = 1
+            self._syms.append(sym)
+
+    def post_process(self):
+        for sym in self._syms:
+            sv.BindOp(instance=sym)
+
+
 def lower_magma_defn_or_decl_to_hw(defn_or_decl: m.circuit.CircuitKind) -> bool:
     if treat_as_primitive(defn_or_decl):
         return False
@@ -575,6 +607,8 @@ def lower_magma_defn_or_decl_to_hw(defn_or_decl: m.circuit.CircuitKind) -> bool:
             operands=inputs,
             results=named_outputs)
         return True
+    bind_processor = BindProcessor(ctx, defn_or_decl)
+    bind_processor.preprocess()
     op = hw.ModuleOp(
         name=defn_or_decl.name,
         operands=inputs,
@@ -583,9 +617,11 @@ def lower_magma_defn_or_decl_to_hw(defn_or_decl: m.circuit.CircuitKind) -> bool:
     visitor = ModuleVisitor(graph, ctx)
     with push_block(op):
         visitor.visit(defn_or_decl)
+        bind_processor.process()
         output_values = new_values(ctx.get_or_make_mapped_value, i)
         if named_outputs:
             hw.OutputOp(operands=output_values)
+    bind_processor.post_process()
     return True
 
 

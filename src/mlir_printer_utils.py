@@ -1,4 +1,4 @@
-from typing import List, Union
+from typing import List, Mapping, Union
 
 from mlir import MlirValue
 from printer_base import PrinterBase
@@ -31,3 +31,8 @@ def print_signature(
         value_or_value_list: MlirValueOrMlirValueList, printer: PrinterBase):
     value_list = _maybe_wrap_value_or_value_list(value_or_value_list)
     printer.print(", ".join(f"{v.name}: {v.type.emit()}" for v in value_list))
+
+
+def print_attr_dict(attr_dict: Mapping, printer: PrinterBase):
+    attr_dict_to_string = ", ".join(f"{k} = {v}" for k, v in attr_dict.items())
+    printer.print(f"{{{attr_dict_to_string}}}")

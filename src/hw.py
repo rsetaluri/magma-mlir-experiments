@@ -1,8 +1,9 @@
 import dataclasses
-from typing import List, Tuple
+from typing import List, Optional, Tuple
 
 from mlir import MlirDialect, begin_dialect, end_dialect
-from mlir_printer_utils import print_names, print_types, print_signature
+from mlir_printer_utils import (
+    print_names, print_types, print_signature, print_attr_dict)
 from mlir import MlirOp, MlirRegion, MlirBlock
 from mlir import MlirValue
 from mlir import MlirType
@@ -104,14 +105,22 @@ class InstanceOp(MlirOp):
     results: List[MlirValue]
     name: str
     module: str
+    sym: Optional[str] = None
 
     def print_op(self, printer: PrinterBase):
         if self.results:
             print_names(self.results, printer)
             printer.print(" = ")
-        printer.print(f"hw.instance \"{self.name}\" @{self.module}(")
+        printer.print(f"hw.instance \"{self.name}\" ")
+        if self.sym is not None:
+            printer.print(f"sym {self.sym} ")
+        printer.print(f"@{self.module}(")
         print_names(self.operands, printer)
-        printer.print(") : (")
+        printer.print(") ")
+        if self.attr_dict:
+            print_attr_dict(self.attr_dict, printer)
+            printer.print(" ")
+        printer.print(": (")
         print_types(self.operands, printer)
         printer.print(") -> (")
         print_types(self.results, printer)

@@ -32,7 +32,14 @@ def value_or_type_to_string(value_or_type: Union[m.Type, m.Kind]):
 def visit_value_by_direction(
         value: m.Type,
         input_visitor: Callable[[m.Type], Any],
-        output_visitor: Callable[[m.Type], Any]):
+        output_visitor: Callable[[m.Type], Any],
+        **kwargs):
+    flatten_all_tuples = kwargs.get("flatten_all_tuples", False)
+    if flatten_all_tuples and isinstance(value, m.Product):
+        for field in value.values():
+            visit_value_by_direction(
+                field, input_visitor, output_visitor, **kwargs)
+        return
     if value.is_input():
         return input_visitor(value)
     if value.is_output():
@@ -40,11 +47,13 @@ def visit_value_by_direction(
     if value.is_mixed():
         if isinstance(value, m.Product):
             for field in value.values():
-                visit_value_by_direction(field, input_visitor, output_visitor)
+                visit_value_by_direction(
+                    field, input_visitor, output_visitor, **kwargs)
             return
         if isinstance(value, m.Array):
             for item in value:
-                visit_value_by_direction(item, input_visitor, output_visitor)
+                visit_value_by_direction(
+                    item, input_visitor, output_visitor, **kwargs)
             return
     raise TypeError(value)
 
@@ -59,8 +68,16 @@ class ValueWrapper:
 def visit_value_wrapper_by_direction(
         value_wrapper: ValueWrapper,
         input_visitor: Callable[[ValueWrapper], Any],
-        output_visitor: Callable[[ValueWrapper], Any]):
+        output_visitor: Callable[[ValueWrapper], Any],
+        **kwargs):
     T = value_wrapper.T
+    flatten_all_tuples = kwargs.get("flatten_all_tuples", False)
+    if flatten_all_tuples and isinstance(T, m.ProductMeta):
+        for key, TT in T.field_dict.items():
+            field = ValueWrapper(f"{value_wrapper.name}_{key}", TT)
+            visit_value_wrapper_by_direction(
+                field, input_visitor, output_visitor, **kwargs)
+        return
     if T.is_input():
         return input_visitor(value_wrapper)
     if T.is_output():
@@ -70,13 +87,13 @@ def visit_value_wrapper_by_direction(
             for key, TT in T.field_dict.items():
                 field = ValueWrapper(f"{value_wrapper.name}_{key}", TT)
                 visit_value_wrapper_by_direction(
-                    field, input_visitor, output_visitor)
+                    field, input_visitor, output_visitor, **kwargs)
             return
         if isinstance(T, m.ArrayMeta):
             for index in range(T.N):
                 item = ValueWrapper(f"{value_wrapper.name}[{key}]", T.T)
                 visit_value_wrapper_by_direction(
-                    item, input_visitor, output_visitor)
+                    item, input_visitor, output_visitor, **kwargs)
             return
     raise TypeError(value)
 

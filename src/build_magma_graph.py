@@ -32,14 +32,24 @@ def _get_inst_or_defn_or_die(ref):
     assert False
 
 
+@dataclasses.dataclass(frozen=True)
+class BuildMagmaGrahOpts:
+    flatten_all_tuples: bool = False
+
+
 class ModuleContext:
-    def __init__(self, graph: Graph):
+    def __init__(self, graph: Graph, opts: BuildMagmaGrahOpts):
         self._graph = graph
+        self._opts = opts
         self._getter_cache = {}
 
     @property
     def graph(self) -> Graph:
         return self._graph
+
+    @property
+    def opts(self) -> BuildMagmaGrahOpts:
+        return self._opts
 
     @property
     def getter_cache(self):
@@ -108,7 +118,7 @@ def _visit_driver(
         ctx.graph.add_edge(getter, module, info=info)
         return
     if isinstance(ref, m.ref.TupleRef):
-        if ref.tuple.is_mixed():
+        if ctx.opts.flatten_all_tuples or ref.tuple.is_mixed():
             info=dict(src=driver, dst=value)
             src_module = _get_inst_or_defn_or_die(safe_root(ref.tuple.name))
             ctx.graph.add_edge(src_module, module, info=info)
@@ -142,8 +152,10 @@ def _visit_inputs(ctx: ModuleContext, module: ModuleLike):
         )
 
 
-def build_magma_graph(ckt: m.DefineCircuitKind) -> Graph:
-    ctx = ModuleContext(Graph())
+def build_magma_graph(
+        ckt: m.DefineCircuitKind,
+        opts: BuildMagmaGrahOpts = BuildMagmaGrahOpts()) -> Graph:
+    ctx = ModuleContext(Graph(), opts)
     _visit_inputs(ctx, ckt)
     for inst in ckt.instances:
         _visit_inputs(ctx, inst)

@@ -21,6 +21,14 @@ _VALUE_OR_TYPE_TO_STRING_REPLACEMENTS = {
 }
 
 
+def contains_tuple(T: m.Kind):
+    if isinstance(T, m.ProductMeta):
+        return True
+    if isinstance(T, m.ArrayMeta):
+        return contains_tuple(T.T)
+    return False
+
+
 def value_or_type_to_string(value_or_type: Union[m.Type, m.Kind]):
     if isinstance(value_or_type, m.Type):
         s = value_or_type.name.qualifiedname("_")
@@ -34,17 +42,8 @@ def visit_value_by_direction(
         input_visitor: Callable[[m.Type], Any],
         output_visitor: Callable[[m.Type], Any],
         **kwargs):
-    flatten_all_tuples = kwargs.get("flatten_all_tuples", False)
-    if flatten_all_tuples and isinstance(value, m.Product):
-        for field in value.values():
-            visit_value_by_direction(
-                field, input_visitor, output_visitor, **kwargs)
-        return
-    if value.is_input():
-        return input_visitor(value)
-    if value.is_output():
-        return output_visitor(value)
-    if value.is_mixed():
+
+    def descend(value):
         if isinstance(value, m.Product):
             for field in value.values():
                 visit_value_by_direction(
@@ -55,6 +54,17 @@ def visit_value_by_direction(
                 visit_value_by_direction(
                     item, input_visitor, output_visitor, **kwargs)
             return
+        raise TypeError(value)
+
+    flatten_all_tuples = kwargs.get("flatten_all_tuples", False)
+    if flatten_all_tuples and contains_tuple(type(value)):
+        return descend(value)
+    if value.is_input():
+        return input_visitor(value)
+    if value.is_output():
+        return output_visitor(value)
+    if value.is_mixed():
+        return descend(value)
     raise TypeError(value)
 
 
@@ -70,19 +80,9 @@ def visit_value_wrapper_by_direction(
         input_visitor: Callable[[ValueWrapper], Any],
         output_visitor: Callable[[ValueWrapper], Any],
         **kwargs):
-    T = value_wrapper.T
-    flatten_all_tuples = kwargs.get("flatten_all_tuples", False)
-    if flatten_all_tuples and isinstance(T, m.ProductMeta):
-        for key, TT in T.field_dict.items():
-            field = ValueWrapper(f"{value_wrapper.name}_{key}", TT)
-            visit_value_wrapper_by_direction(
-                field, input_visitor, output_visitor, **kwargs)
-        return
-    if T.is_input():
-        return input_visitor(value_wrapper)
-    if T.is_output():
-        return output_visitor(value_wrapper)
-    if T.is_mixed():
+
+    def descend(value_wrapper):
+        T = value_wrapper.T
         if isinstance(T, m.ProductMeta):
             for key, TT in T.field_dict.items():
                 field = ValueWrapper(f"{value_wrapper.name}_{key}", TT)
@@ -95,7 +95,19 @@ def visit_value_wrapper_by_direction(
                 visit_value_wrapper_by_direction(
                     item, input_visitor, output_visitor, **kwargs)
             return
-    raise TypeError(value)
+        raise TypeError(value_wrapper)
+
+    T = value_wrapper.T
+    flatten_all_tuples = kwargs.get("flatten_all_tuples", False)
+    if flatten_all_tuples and contains_tuple(T):
+        return descend(value_wrapper)
+    if T.is_input():
+        return input_visitor(value_wrapper)
+    if T.is_output():
+        return output_visitor(value_wrapper)
+    if T.is_mixed():
+        return descend(value_wrapper)
+    raise TypeError(value_wrapper)
 
 
 class InstanceWrapper:

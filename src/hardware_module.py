@@ -6,7 +6,7 @@ import weakref
 
 import magma as m
 
-from build_magma_graph import build_magma_graph
+from build_magma_graph import BuildMagmaGrahOpts, build_magma_graph
 from builtin import builtin
 from comb import comb
 from common import wrap_with_not_implemented_error
@@ -77,7 +77,8 @@ def get_module_interface(
         visit_magma_value_by_direction(
             port,
             lambda p: operands.append(ctx.get_or_make_mapped_value(p)),
-            lambda p: results.append(ctx.get_or_make_mapped_value(p))
+            lambda p: results.append(ctx.get_or_make_mapped_value(p)),
+            flatten_all_tuples=ctx.opts.flatten_all_tuples,
         )
     return operands, results
 
@@ -126,7 +127,8 @@ class ModuleWrapper:
                 visit_magma_value_wrapper_by_direction(
                     port,
                     lambda p: operands.append(ctx.get_or_make_mapped_value(p)),
-                    lambda p: results.append(ctx.get_or_make_mapped_value(p))
+                    lambda p: results.append(ctx.get_or_make_mapped_value(p)),
+                    flatten_all_tuples=ctx.opts.flatten_all_tuples,
                 )
             return ModuleWrapper(module, operands, results)
         operands, results = get_module_interface(module, ctx)
@@ -644,6 +646,10 @@ class HardwareModule:
         return self._parent()
 
     @property
+    def opts(self) -> CompileToMlirOpts:
+        return self._opts
+
+    @property
     def hw_module(self) -> hw.ModuleOpBase:
         return self._hw_module
 
@@ -696,7 +702,9 @@ class HardwareModule:
     
         i, o = [], []
         for port in self._magma_defn_or_decl.interface.ports.values():
-            visit_magma_value_by_direction(port, i.append, o.append)
+            visit_magma_value_by_direction(
+                port, i.append, o.append,
+                flatten_all_tuples=self._opts.flatten_all_tuples)
         inputs = new_values(self.get_or_make_mapped_value, o)
         named_outputs = new_values(self.new_value, i)
         defn_or_decl_output_name = _get_defn_or_decl_output_name(
@@ -715,7 +723,8 @@ class HardwareModule:
             name=name,
             operands=inputs,
             results=named_outputs)
-        graph = build_magma_graph(self._magma_defn_or_decl)
+        opts = BuildMagmaGrahOpts(self._opts.flatten_all_tuples)
+        graph = build_magma_graph(self._magma_defn_or_decl, opts)
         visitor = ModuleVisitor(graph, self)
         with push_block(op):
             visitor.visit(self._magma_defn_or_decl)

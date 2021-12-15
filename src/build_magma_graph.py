@@ -143,12 +143,14 @@ def _visit_input(ctx: ModuleContext, value: m.Type, module: ModuleLike):
     _visit_driver(ctx, value, driver, module)
 
 
-def _visit_inputs(ctx: ModuleContext, module: ModuleLike):
+def _visit_inputs(
+        ctx: ModuleContext, module: ModuleLike, flatten_all_tuples: bool):
     for port in module.interface.ports.values():
         visit_value_by_direction(
             port,
             lambda p: _visit_input(ctx, p, module),
-            lambda _: None
+            lambda _: None,
+            flatten_all_tuples=flatten_all_tuples
         )
 
 
@@ -156,7 +158,7 @@ def build_magma_graph(
         ckt: m.DefineCircuitKind,
         opts: BuildMagmaGrahOpts = BuildMagmaGrahOpts()) -> Graph:
     ctx = ModuleContext(Graph(), opts)
-    _visit_inputs(ctx, ckt)
+    _visit_inputs(ctx, ckt, opts.flatten_all_tuples)
     for inst in ckt.instances:
-        _visit_inputs(ctx, inst)
+        _visit_inputs(ctx, inst, opts.flatten_all_tuples)
     return ctx.graph

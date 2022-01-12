@@ -6,10 +6,11 @@ import weakref
 
 import magma as m
 
-from build_magma_graph import build_magma_graph
+from build_magma_graph import BuildMagmaGrahOpts, build_magma_graph
 from builtin import builtin
 from comb import comb
 from common import wrap_with_not_implemented_error
+from compile_to_mlir_opts import CompileToMlirOpts
 from graph_lib import Graph
 from hw import hw
 from magma_common import (
@@ -76,7 +77,8 @@ def get_module_interface(
         visit_magma_value_by_direction(
             port,
             lambda p: operands.append(ctx.get_or_make_mapped_value(p)),
-            lambda p: results.append(ctx.get_or_make_mapped_value(p))
+            lambda p: results.append(ctx.get_or_make_mapped_value(p)),
+            flatten_all_tuples=ctx.opts.flatten_all_tuples,
         )
     return operands, results
 
@@ -125,7 +127,8 @@ class ModuleWrapper:
                 visit_magma_value_wrapper_by_direction(
                     port,
                     lambda p: operands.append(ctx.get_or_make_mapped_value(p)),
-                    lambda p: results.append(ctx.get_or_make_mapped_value(p))
+                    lambda p: results.append(ctx.get_or_make_mapped_value(p)),
+                    flatten_all_tuples=ctx.opts.flatten_all_tuples,
                 )
             return ModuleWrapper(module, operands, results)
         operands, results = get_module_interface(module, ctx)
@@ -283,6 +286,13 @@ class ModuleVisitor:
         assert defn.coreir_name == "muxn"
         data = self._ctx.new_value(defn.I.data)
         sel = self._ctx.new_value(defn.I.sel)
+        # NOTE(rsetaluri): This is a specialized code path for the case where
+        # all tuples are flattened.
+        if self._ctx.opts.flatten_all_tuples:
+            hw.ArrayGetOp(
+                operands=module.operands.copy(),
+                results=module.results.copy())
+            return True
         hw.StructExtractOp(
             field="data",
             operands=module.operands.copy(),
@@ -366,6 +376,17 @@ class ModuleVisitor:
 
     @wrap_with_not_implemented_error
     def visit_magma_mux(self, module: ModuleWrapper) -> bool:
+
+        def make_mux(data, select, result):
+            mlir_type = hw.ArrayType((len(data),), data[0].type)
+            array = self._ctx.new_value(mlir_type)
+            hw.ArrayCreateOp(
+                operands=data,
+                results=[array])
+            hw.ArrayGetOp(
+                operands=[array, select],
+                results=[result])
+
         inst = module.module
         defn = type(inst)
         assert isinstance(defn, m.Mux)
@@ -374,15 +395,18 @@ class ModuleVisitor:
         # magma/primitives/mux.py.
         height = len(list(filter(
             lambda p: "I" in p.name.name, defn.interface.outputs())))
-        T = type(defn.I0)
-        mlir_type = hw.ArrayType((height,), magma_type_to_mlir_type(T))
-        array = self._ctx.new_value(mlir_type)
-        hw.ArrayCreateOp(
-            operands=module.operands[:-1],
-            results=[array])
-        hw.ArrayGetOp(
-            operands=[array, module.operands[-1]],
-            results=module.results)
+        data, select = module.operands[:-1], module.operands[-1]
+        # NOTE(rsetaluri): This is a specialized code path for the case where
+        # all tuples are flattened.
+        if self._ctx.opts.flatten_all_tuples and len(data) != height:
+            assert len(data) % height == 0
+            stride = len(data) // height
+            assert len(module.results) == stride
+            for i in range(stride):
+                operands = data[i::stride]
+                make_mux(data[i::stride], select, module.results[i])
+            return True
+        make_mux(data, select, module.results[0])
         return True
 
     @wrap_with_not_implemented_error
@@ -626,9 +650,10 @@ class BindProcessor:
 class HardwareModule:
     def __init__(
             self, magma_defn_or_decl: m.circuit.CircuitKind,
-            parent: weakref.ReferenceType):
+            parent: weakref.ReferenceType, opts: CompileToMlirOpts):
         self._magma_defn_or_decl = magma_defn_or_decl
         self._parent = parent
+        self._opts = opts
         self._hw_module = None
         self._name_gen = ScopedNameGenerator()
         self._value_map = {}
@@ -640,6 +665,10 @@ class HardwareModule:
     @property
     def parent(self):
         return self._parent()
+
+    @property
+    def opts(self) -> CompileToMlirOpts:
+        return self._opts
 
     @property
     def hw_module(self) -> hw.ModuleOpBase:
@@ -694,7 +723,9 @@ class HardwareModule:
     
         i, o = [], []
         for port in self._magma_defn_or_decl.interface.ports.values():
-            visit_magma_value_by_direction(port, i.append, o.append)
+            visit_magma_value_by_direction(
+                port, i.append, o.append,
+                flatten_all_tuples=self._opts.flatten_all_tuples)
         inputs = new_values(self.get_or_make_mapped_value, o)
         named_outputs = new_values(self.new_value, i)
         defn_or_decl_output_name = _get_defn_or_decl_output_name(
@@ -713,7 +744,8 @@ class HardwareModule:
             name=name,
             operands=inputs,
             results=named_outputs)
-        graph = build_magma_graph(self._magma_defn_or_decl)
+        opts = BuildMagmaGrahOpts(self._opts.flatten_all_tuples)
+        graph = build_magma_graph(self._magma_defn_or_decl, opts)
         visitor = ModuleVisitor(graph, self)
         with push_block(op):
             visitor.visit(self._magma_defn_or_decl)

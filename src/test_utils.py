@@ -10,7 +10,9 @@ from typing import Any, List, Optional
 
 import magma as m
 
+from common import slice_opts
 from compile_to_mlir import compile_to_mlir
+from compile_to_mlir_opts import CompileToMlirOpts
 import examples
 import magma_examples
 from mlir_to_verilog import mlir_to_verilog
@@ -30,14 +32,16 @@ def _maybe_get_env(value: Any, key: str, default: Any) -> Any:
 
 
 def _compile_to_mlir(
-        ckt: m.DefineCircuitKind, write_output_files: bool) -> io.TextIOBase:
+        ckt: m.DefineCircuitKind,
+        write_output_files: bool,
+        opts: CompileToMlirOpts) -> io.TextIOBase:
     if not write_output_files:
         mlir_out = io.TextIOWrapper(io.BytesIO())
-        compile_to_mlir(ckt, mlir_out)
+        compile_to_mlir(ckt, mlir_out, opts)
         return mlir_out
     filename = f"{ckt.name}.mlir"
     with open(filename, "w") as mlir_out:
-        compile_to_mlir(ckt, mlir_out)
+        compile_to_mlir(ckt, mlir_out, opts)
     mlir_out = open(filename, "rb")
     return io.TextIOWrapper(mlir_out)
 
@@ -92,17 +96,20 @@ def check_streams_equal(
 def run_test_compile_to_mlir(
         ckt: m.DefineCircuitKind,
         check_verilog: Optional[bool] = None,
-        write_output_files: Optional[bool] = None):
+        write_output_files: Optional[bool] = None,
+        **kwargs):
     check_verilog = _maybe_get_env(check_verilog, "CHECK_VERILOG", 0)
     write_output_files = _maybe_get_env(
         write_output_files, "WRITE_OUTPUT_FILES", 0)
     m.passes.clock.WireClockPass(ckt).run()
-    mlir_out = _compile_to_mlir(ckt, write_output_files)
+    opts = slice_opts(kwargs, CompileToMlirOpts)
+    mlir_out = _compile_to_mlir(ckt, write_output_files, opts)
     mlir_out.seek(0)
-    with open(f"golds/{ckt.name}.mlir", "rb") as mlir_gold:
+    gold_name = kwargs.get("gold_name", ckt.name)
+    with open(f"golds/{gold_name}.mlir", "rb") as mlir_gold:
         assert check_streams_equal(mlir_out.buffer, mlir_gold, "out", "gold")
     if check_verilog:
-        with open(f"golds/{ckt.name}.v", "rb") as verilog_gold:
+        with open(f"golds/{gold_name}.v", "rb") as verilog_gold:
             mlir_out.seek(0)
             verilog_out = _compile_to_verilog(
                 ckt, mlir_out.buffer, write_output_files)

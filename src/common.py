@@ -77,3 +77,14 @@ def try_call(fn: Callable[[], Any], ExceptionType: Any):
         pass
     else:
         return ret
+
+
+def slice_opts(dct: Dict, cls: type):
+    kwargs = {}
+    for name, field in cls.__dataclass_fields__.items():
+        try:
+            value = dct.pop(name)
+        except KeyError:
+            continue
+        kwargs[name] = value
+    return cls(**kwargs)

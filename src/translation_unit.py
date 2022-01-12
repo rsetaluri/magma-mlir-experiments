@@ -4,14 +4,16 @@ import weakref
 import magma as m
 
 from builtin import builtin
+from compile_to_mlir_opts import CompileToMlirOpts
 from hardware_module import HardwareModule
 from mlir import MlirSymbol, push_block
 from scoped_name_generator import ScopedNameGenerator
 
 
 class TranslationUnit:
-    def __init__(self, magma_top: m.DefineCircuitKind):
+    def __init__(self, magma_top: m.DefineCircuitKind, opts: CompileToMlirOpts):
         self._magma_top = magma_top
+        self._opts = opts
         self._mlir_module = builtin.ModuleOp()
         self._hardware_modules = {}
         self._symbol_map = {}
@@ -27,7 +29,7 @@ class TranslationUnit:
 
     def new_hardware_module(
             self, magma_defn_or_decl: m.circuit.CircuitKind) -> HardwareModule:
-        return HardwareModule(magma_defn_or_decl, weakref.ref(self))
+        return HardwareModule(magma_defn_or_decl, weakref.ref(self), self._opts)
 
     def get_hardware_module(
             self, magma_defn_or_decl: m.circuit.CircuitKind) -> HardwareModule:
